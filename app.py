@@ -121,45 +121,40 @@ uploaded_file = st.file_uploader(
     type=["pdf", "png", "jpg", "jpeg"]
 )
 
+
 if uploaded_file:
     st.success(f"File received: {uploaded_file.name}")
 
-    if uploaded_file.type.startswith("image/"):
-        st.image(
-            uploaded_file,
-            caption="Uploaded medical report",
-            use_container_width=True
+    if st.button("🔍 Extract Report Text"):
+        with st.spinner("Reading your medical report..."):
+            try:
+                from report_reader import extract_report_text
+
+                extracted_text = extract_report_text(uploaded_file)
+
+                if extracted_text:
+                    st.session_state["extracted_text"] = extracted_text
+                    st.success("Text extraction completed!")
+                else:
+                    st.warning(
+                        "No text was extracted. "
+                        "The report may be scanned or unclear."
+                    )
+
+            except Exception as error:
+                st.error(
+                    "Could not read this report. "
+                    "Please try a clearer file."
+                )
+                st.caption(f"Technical details: {error}")
+
+    if st.session_state.get("extracted_text"):
+        st.markdown("### 📄 Extracted Report Text")
+        st.text_area(
+            "Review the extracted text",
+            value=st.session_state["extracted_text"],
+            height=300
         )
-    else:
-        st.info("Your PDF is ready for text extraction.")
-
-    st.warning(
-        "Text extraction and AI analysis will be added next."
-    )
-
-st.markdown("---")
-st.markdown("### 📋 Example Reports You Can Upload")
-
-r1, r2, r3, r4 = st.columns(4)
-
-with r1:
-    st.markdown("**🩸 Blood Test**")
-    st.caption("CBC, lipid profile, etc.")
-
-with r2:
-    st.markdown("**🩻 Diagnostics**")
-    st.caption("X-ray and scan reports")
-
-with r3:
-    st.markdown("**💊 Prescriptions**")
-    st.caption("Doctor-prescribed medicines")
-
-with r4:
-    st.markdown("**🏥 Discharge Summary**")
-    st.caption("Hospital records")
-
-st.caption(
-    "Privacy first: use sample reports for demos. "
-    "This tool is for informational purposes, "
-    "not a substitute for professional medical advice."
-)
+        st.caption(
+            "Please verify the extracted values against the original report."
+        )
