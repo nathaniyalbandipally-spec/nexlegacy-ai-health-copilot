@@ -1,11 +1,24 @@
 
+
 import streamlit as st
+
 from supabase_client import create_supabase_client
+
+
+# --------------------------------------------------
+# 1. PAGE CONFIGURATION
+# --------------------------------------------------
+
 st.set_page_config(
     page_title="AI Health Copilot",
     page_icon="🩺",
     layout="wide"
 )
+
+
+# --------------------------------------------------
+# 2. CUSTOM UI DESIGN
+# --------------------------------------------------
 
 st.markdown("""
 <style>
@@ -50,12 +63,6 @@ st.markdown("""
 .card p {
     color: #64748b;
 }
-.upload-box {
-    background: white;
-    border: 2px dashed #82b5ff;
-    border-radius: 22px;
-    padding: 25px;
-}
 .stButton button {
     border-radius: 12px;
     min-height: 42px;
@@ -63,20 +70,217 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-with st.sidebar:
-    st.markdown("## 🩺 AI Health Copilot")
-    st.markdown("---")
-    st.markdown("### 🏠 Home")
-    st.markdown("📄 Upload Report")
-    st.markdown("📁 My Reports")
-    st.markdown("📊 Health Insights")
-    st.markdown("📚 Medical Terms")
-    st.markdown("---")
-    st.info(
-        "Understand and organize your "
-        "medical information. This app "
-        "does not diagnose diseases."
+
+# --------------------------------------------------
+# 3. SESSION INITIALIZATION
+# --------------------------------------------------
+
+defaults = {
+    "sb_access_token": None,
+    "sb_refresh_token": None,
+    "sb_user_email": None,
+    "sb_user_id": None,
+    "extracted_text": "",
+    "report_filename": None,
+    "report_explanation": None,
+}
+
+for key, value in defaults.items():
+    if key not in st.session_state:
+        st.session_state[key] = value
+
+
+# --------------------------------------------------
+# 4. SUPABASE CONNECTION
+# --------------------------------------------------
+
+try:
+    supabase = create_supabase_client(
+        st.session_state["sb_access_token"],
+        st.session_state["sb_refresh_token"]
     )
+except Exception:
+    st.error(
+        "Supabase connection failed. Check your "
+        "SUPABASE_URL and SUPABASE_KEY secrets."
+    )
+    st.stop()
+
+
+# --------------------------------------------------
+# 5. AUTHENTICATION SCREEN
+# --------------------------------------------------
+
+if not st.session_state["sb_access_token"]:
+
+    st.markdown("""
+    <div class="hero">
+        <h1>🩺 AI Health Copilot</h1>
+        <p>Your personal medical information assistant</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.subheader("🔐 Welcome")
+    st.write("Sign in or create an account to continue.")
+
+    login_tab, signup_tab = st.tabs(
+        ["Sign In", "Create Account"]
+    )
+
+    with login_tab:
+        with st.form("login_form"):
+            email = st.text_input("Email address")
+            password = st.text_input(
+                "Password",
+                type="password"
+            )
+            login_clicked = st.form_submit_button(
+                "Sign In",
+                use_container_width=True
+            )
+
+        if login_clicked:
+            if not email.strip() or not password:
+                st.warning("Enter your email and password.")
+            else:
+                try:
+                    result = supabase.auth.sign_in_with_password({
+                        "email": email.strip(),
+                        "password": password
+                    })
+
+                    session = result.session
+
+                    if session and result.user:
+                        st.session_state["sb_access_token"] = (
+                            session.access_token
+                        )
+                        st.session_state["sb_refresh_token"] = (
+                            session.refresh_token
+                        )
+                        st.session_state["sb_user_email"] = (
+                            result.user.email
+                        )
+                        st.session_state["sb_user_id"] = str(
+                            result.user.id
+                        )
+
+                        st.rerun()
+                    else:
+                        st.error("Sign-in did not return a session.")
+
+                except Exception:
+                    st.error(
+                        "Sign-in failed. Check your credentials "
+                        "and confirm your email if required."
+                    )
+
+    with signup_tab:
+        with st.form("signup_form"):
+            new_email = st.text_input(
+                "Email address",
+                key="signup_email"
+            )
+            new_password = st.text_input(
+                "Create password",
+                type="password",
+                key="signup_password"
+            )
+            confirm_password = st.text_input(
+                "Confirm password",
+                type="password",
+                key="confirm_password"
+            )
+            signup_clicked = st.form_submit_button(
+                "Create Account",
+                use_container_width=True
+            )
+
+        if signup_clicked:
+            if not new_email.strip() or not new_password:
+                st.warning("Enter an email and password.")
+            elif new_password != confirm_password:
+                st.warning("The passwords do not match.")
+            elif len(new_password) < 8:
+                st.warning(
+                    "Use a password with at least 8 characters."
+                )
+            else:
+                try:
+                    result = supabase.auth.sign_up({
+                        "email": new_email.strip(),
+                        "password": new_password
+                    })
+
+                    if result.session and result.user:
+                        st.session_state["sb_access_token"] = (
+                            result.session.access_token
+                        )
+                        st.session_state["sb_refresh_token"] = (
+                            result.session.refresh_token
+                        )
+                        st.session_state["sb_user_email"] = (
+                            result.user.email
+                        )
+                        st.session_state["sb_user_id"] = str(
+                            result.user.id
+                        )
+
+                        st.success("Account created successfully!")
+                        st.rerun()
+                    else:
+                        st.success(
+                            "Account created. Check your email "
+                            "for the confirmation link, then sign in."
+                        )
+
+                except Exception:
+                    st.error(
+                        "Account creation failed. Check the email "
+                        "and Supabase authentication settings."
+                    )
+
+    st.info(
+        "Your medical information is sensitive. "
+        "Use fictional reports while testing this prototype."
+    )
+
+    st.stop()
+
+
+# --------------------------------------------------
+# 6. AUTHENTICATED USER
+# --------------------------------------------------
+
+st.sidebar.markdown("## 🩺 AI Health Copilot")
+st.sidebar.markdown("---")
+st.sidebar.markdown("🏠 Home")
+st.sidebar.markdown("📄 Upload Report")
+st.sidebar.markdown("📁 My Reports")
+st.sidebar.markdown("📊 Health Insights")
+st.sidebar.markdown("📚 Medical Terms")
+
+st.sidebar.markdown("---")
+st.sidebar.caption(
+    "Signed in as: "
+    + str(st.session_state["sb_user_email"])
+)
+
+if st.sidebar.button("Sign Out"):
+    try:
+        supabase.auth.sign_out()
+    except Exception:
+        pass
+
+    for key, value in defaults.items():
+        st.session_state[key] = value
+
+    st.rerun()
+
+
+# --------------------------------------------------
+# 7. MAIN DASHBOARD
+# --------------------------------------------------
 
 st.markdown("""
 <div class="hero">
@@ -111,154 +315,83 @@ with c3:
     </div>
     """, unsafe_allow_html=True)
 
-# Initialize Supabase
-try:
-    supabase = create_supabase_client()
-except Exception:
-    st.error(
-        "Supabase is not configured yet. "
-        "Please configure your app secrets."
-    )
-    st.stop()
 
-# Authentication
-if "user" not in st.session_state:
-    st.session_state.user = None
-
-if not st.session_state.user:
-    st.markdown("## 🔐 Welcome to AI Health Copilot")
-    st.write("Sign in or create an account to continue.")
-
-    tab_login, tab_signup = st.tabs(["Sign In", "Sign Up"])
-
-    with tab_login:
-        login_email = st.text_input(
-            "Email address",
-            key="login_email"
-        )
-        login_password = st.text_input(
-            "Password",
-            type="password",
-            key="login_password"
-        )
-
-        if st.button("Sign In", use_container_width=True):
-            try:
-                result = supabase.auth.sign_in_with_password({
-                    "email": login_email,
-                    "password": login_password
-                })
-                st.session_state.user = result.user
-                st.rerun()
-            except Exception:
-                st.error("Sign in failed. Check your details.")
-
-    with tab_signup:
-        signup_email = st.text_input(
-            "Email address",
-            key="signup_email"
-        )
-        signup_password = st.text_input(
-            "Create password",
-            type="password",
-            key="signup_password"
-        )
-
-        if st.button("Create Account", use_container_width=True):
-            try:
-                result = supabase.auth.sign_up({
-                    "email": signup_email,
-                    "password": signup_password
-                })
-
-                if result.session:
-                    st.session_state.user = result.user
-                    st.rerun()
-                else:
-                    st.success(
-                        "Account created! Check your email "
-                        "to confirm your account, then sign in."
-                    )
-            except Exception:
-                st.error(
-                    "Account creation failed. Check your "
-                    "email and password requirements."
-                )
-
-    st.stop()
-
-# Signed-in user
-st.caption(f"Signed in as: {st.session_state.user.email}")
-
-if st.button("Sign Out"):
-    supabase.auth.sign_out()
-    st.session_state.user = None
-    st.rerun()
-
+# --------------------------------------------------
+# 8. REPORT UPLOAD
+# --------------------------------------------------
 
 st.markdown("## 📤 Upload a Medical Report")
-st.markdown(
-    "Choose a report below to begin exploring your health information."
+
+st.write(
+    "Choose a report to extract and review its text."
 )
 
 uploaded_file = st.file_uploader(
     "Choose a PDF or image",
-    type=["pdf", "png", "jpg", "jpeg"]
+    type=["pdf", "png", "jpg", "jpeg"],
+    key="medical_report_upload"
 )
 
-
-
 if uploaded_file:
-    st.success(f"Report uploaded: {uploaded_file.name}")
+    current_filename = uploaded_file.name
+
+    if st.session_state["report_filename"] != current_filename:
+        st.session_state["extracted_text"] = ""
+        st.session_state["report_explanation"] = None
+        st.session_state["report_filename"] = current_filename
+
+    st.success(f"Report selected: {current_filename}")
 
     if st.button("🔍 Extract Report Text"):
         with st.spinner("Reading your report..."):
             try:
                 from report_reader import extract_report_text
 
-                text = extract_report_text(uploaded_file)
+                extracted = extract_report_text(uploaded_file)
 
-                if text:
-                    st.session_state["extracted_text"] = text
-                    st.session_state["report_filename"] = uploaded_file.name
-                    st.success("Text extracted successfully!")
+                if extracted.strip():
+                    st.session_state["extracted_text"] = extracted
+                    st.session_state["report_explanation"] = None
+                    st.success("Text extraction completed!")
                 else:
                     st.warning(
-                        "No text found. Try a clearer report."
+                        "No text was extracted. Try a clearer file."
                     )
 
             except Exception:
                 st.error(
-                    "Could not read this file. Check the file "
-                    "format and OCR dependencies."
+                    "Could not read this report. Check that the "
+                    "OCR system dependencies are installed."
                 )
 
-    extracted_text = st.session_state.get("extracted_text", "")
+    extracted_text = st.session_state["extracted_text"]
 
     if extracted_text:
         st.markdown("### 📄 Extracted Report Text")
 
         st.text_area(
             "Review and correct the extracted text",
-            value=extracted_text,
             height=250,
-            key="report_text_review"
+            key="report_text_review",
+            value=extracted_text
         )
 
         st.caption(
-            "Verify names, dates, values, and units against "
-            "the original report before requesting an explanation."
+            "Verify medical values and units against the original report."
         )
 
         if st.button("🧠 Explain My Report"):
-            try:
-                from ai_explainer import explain_medical_report
+            corrected_text = st.session_state.get(
+                "report_text_review",
+                extracted_text
+            )
 
-                corrected_text = st.session_state["report_text_review"]
+            if not corrected_text.strip():
+                st.warning("There is no report text to explain.")
+            else:
+                try:
+                    from ai_explainer import explain_medical_report
 
-                if not corrected_text.strip():
-                    st.warning("Please provide report text first.")
-                else:
                     with st.spinner("Preparing your explanation..."):
                         explanation = explain_medical_report(
                             corrected_text
@@ -266,18 +399,31 @@ if uploaded_file:
 
                     st.session_state["report_explanation"] = explanation
 
-            except Exception:
-                st.error(
-                    "The explanation could not be generated. "
-                    "Check your API key, internet connection, "
-                    "and AI provider availability."
-                )
+                except Exception:
+                    st.error(
+                        "AI explanation failed. Check your "
+                        "OpenRouter secret and provider availability."
+                    )
 
-        if st.session_state.get("report_explanation"):
+        explanation = st.session_state["report_explanation"]
+
+        if explanation:
             st.markdown("### 💙 Your Report Explained")
-            st.markdown(st.session_state["report_explanation"])
+            st.markdown(explanation)
 
             st.info(
-                "This is informational assistance, not a diagnosis. "
-                "Confirm medical findings with a qualified clinician."
+                "This explanation is informational, not a diagnosis. "
+                "Discuss medical findings with a qualified clinician."
             )
+
+
+# --------------------------------------------------
+# 9. PRIVACY NOTICE
+# --------------------------------------------------
+
+st.markdown("---")
+st.caption(
+    "Privacy first: this prototype does not yet save uploaded "
+    "reports to Supabase. Use fictional sample reports during testing. "
+    "AI explanations can be incorrect and must be verified."
+)
