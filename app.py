@@ -416,11 +416,11 @@ if uploaded_file:
                     st.warning(
                         "No text was extracted. Try a clearer file."
                     )
-            except Exception:
-                st.error(
-                    "Could not read this report. Check the file format "
-                    "and OCR dependencies in the app logs."
-                )
+            except Exception as e:
+    st.error(
+        f"Report extraction failed: "
+        f"{type(e).__name__}: {e}"
+    )
 
     if st.session_state["extracted_text"]:
         st.markdown("### 📄 Extracted Report Text")
