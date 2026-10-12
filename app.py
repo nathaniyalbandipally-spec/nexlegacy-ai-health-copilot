@@ -3,20 +3,17 @@ import streamlit as st
 from supabase_client import create_supabase_client
 
 
-# --------------------------------------------------
-# 1. PAGE CONFIGURATION
-# --------------------------------------------------
+# ------------------------------------------------------------
+# AI HEALTH COPILOT - PROTOTYPE
+# Guest access works without Supabase. Auth requires Supabase.
+# Uploaded reports are processed in memory and are NOT saved.
+# ------------------------------------------------------------
 
 st.set_page_config(
     page_title="AI Health Copilot",
     page_icon="🩺",
     layout="wide",
 )
-
-
-# --------------------------------------------------
-# 2. CUSTOM UI DESIGN
-# --------------------------------------------------
 
 st.markdown(
     """
@@ -32,34 +29,33 @@ st.markdown(
         background: #eaf3ff;
     }
     .hero {
-        padding: 25px;
-        border-radius: 22px;
+        padding: 24px;
+        border-radius: 20px;
         background: linear-gradient(120deg, #dceeff, #f5f9ff);
         border: 1px solid #d5e7ff;
-        margin-bottom: 22px;
+        margin-bottom: 20px;
     }
     .hero h1 {
         color: #123365;
-        font-size: 2.4rem;
+        font-size: 2.25rem;
     }
     .hero p {
         color: #526b8e;
-        font-size: 1.1rem;
+        font-size: 1.05rem;
     }
-    .card {
+    .feature-card {
         background: white;
         border: 1px solid #e2eaf5;
-        padding: 20px;
-        border-radius: 18px;
-        min-height: 130px;
+        padding: 18px;
+        border-radius: 16px;
+        min-height: 125px;
         margin-bottom: 12px;
-        box-shadow: 0 4px 15px rgba(25, 70, 120, .05);
     }
-    .card h3 {
+    .feature-card h3 {
         color: #173765;
-        font-size: 1.1rem;
+        font-size: 1.05rem;
     }
-    .card p {
+    .feature-card p {
         color: #64748b;
     }
     .stButton button {
@@ -72,11 +68,9 @@ st.markdown(
 )
 
 
-# --------------------------------------------------
-# 3. SESSION INITIALIZATION
-# --------------------------------------------------
+# ----------------------- SESSION STATE -----------------------
 
-defaults = {
+DEFAULTS = {
     "sb_access_token": None,
     "sb_refresh_token": None,
     "sb_user_email": None,
@@ -88,40 +82,40 @@ defaults = {
     "report_text_review": "",
 }
 
-for key, value in defaults.items():
-    if key not in st.session_state:
-        st.session_state[key] = value
+for state_key, default_value in DEFAULTS.items():
+    if state_key not in st.session_state:
+        st.session_state[state_key] = default_value
 
 
-# --------------------------------------------------
-# 4. SUPABASE CONNECTION
-# Guest mode deliberately skips Supabase completely.
-# --------------------------------------------------
+def clear_user_session():
+    """Clear login and temporary report data."""
+    for state_key, default_value in DEFAULTS.items():
+        st.session_state[state_key] = default_value
+
+
+# ----------------------- SUPABASE CLIENT -----------------------
 
 supabase = None
+supabase_error = None
 
+# Guest mode deliberately does not contact Supabase.
 if not st.session_state["guest_mode"]:
     try:
         supabase = create_supabase_client(
             st.session_state["sb_access_token"],
             st.session_state["sb_refresh_token"],
         )
-    except Exception:
-        st.warning(
-            "Supabase is currently unreachable. You can still try the "
-            "prototype in Guest Mode. Sign-in and account creation need "
-            "a working Supabase connection."
-        )
+    except Exception as exc:
+        # Keep secrets and full provider responses out of the UI.
+        supabase_error = type(exc).__name__
 
 
-# --------------------------------------------------
-# 5. AUTHENTICATION SCREEN
-# --------------------------------------------------
+# ----------------------- SIGN IN / SIGN UP -----------------------
 
-if (
-    not st.session_state["sb_access_token"]
-    and not st.session_state["guest_mode"]
-):
+is_authenticated = bool(st.session_state["sb_access_token"])
+is_guest = bool(st.session_state["guest_mode"])
+
+if not is_authenticated and not is_guest:
     st.markdown(
         """
         <div class="hero">
@@ -131,144 +125,148 @@ if (
         """,
         unsafe_allow_html=True,
     )
+    st.subheader("Welcome")
+    st.write("Sign in, create an account, or explore the prototype as a guest.")
 
-    st.subheader("🔐 Welcome")
-    st.write("Sign in, create an account, or explore as a guest.")
+    if supabase is None:
+        st.warning(
+            "Supabase cannot currently be reached. Guest Mode remains "
+            "available below; sign-in and account creation need a working "
+            "Supabase connection."
+        )
 
-    login_tab, signup_tab = st.tabs(["Sign In", "Create Account"])
+    sign_in_tab, create_account_tab = st.tabs(
+        ["Sign In", "Create Account"]
+    )
 
-    with login_tab:
+    with sign_in_tab:
         with st.form("login_form"):
-            email = st.text_input("Email address", key="login_email")
-            password = st.text_input(
+            login_email = st.text_input("Email address", key="login_email")
+            login_password = st.text_input(
                 "Password",
                 type="password",
                 key="login_password",
             )
-            login_clicked = st.form_submit_button(
+            login_submitted = st.form_submit_button(
                 "Sign In",
                 use_container_width=True,
             )
 
-        if login_clicked:
+        if login_submitted:
             if supabase is None:
                 st.error(
-                    "Supabase is unavailable. Please use Guest Mode "
-                    "and try signing in later."
+                    "Sign-in is unavailable while Supabase cannot be reached. "
+                    "Please use Guest Mode for now."
                 )
-            elif not email.strip() or not password:
-                st.warning("Enter your email and password.")
+            elif not login_email.strip() or not login_password:
+                st.warning("Enter your email address and password.")
             else:
                 try:
-                    result = supabase.auth.sign_in_with_password(
+                    auth_result = supabase.auth.sign_in_with_password(
                         {
-                            "email": email.strip(),
-                            "password": password,
+                            "email": login_email.strip(),
+                            "password": login_password,
                         }
                     )
-                    session = result.session
+                    auth_session = auth_result.session
+                    auth_user = auth_result.user
 
-                    if session and result.user:
+                    if auth_session and auth_user:
                         st.session_state["sb_access_token"] = (
-                            session.access_token
+                            auth_session.access_token
                         )
                         st.session_state["sb_refresh_token"] = (
-                            session.refresh_token
+                            auth_session.refresh_token
                         )
-                        st.session_state["sb_user_email"] = (
-                            result.user.email
-                        )
-                        st.session_state["sb_user_id"] = str(
-                            result.user.id
-                        )
+                        st.session_state["sb_user_email"] = auth_user.email
+                        st.session_state["sb_user_id"] = str(auth_user.id)
                         st.rerun()
                     else:
                         st.error(
-                            "No active session was returned. If email "
-                            "confirmation is enabled, verify your email "
-                            "before signing in."
+                            "No session was returned. If email confirmation "
+                            "is enabled, verify your email before signing in."
                         )
                 except Exception:
                     st.error(
-                        "Sign-in failed. Check your credentials and "
-                        "confirm your email if required."
+                        "Sign-in failed. Check your credentials and email "
+                        "verification status, then try again."
                     )
 
-    with signup_tab:
+    with create_account_tab:
         with st.form("signup_form"):
-            new_email = st.text_input(
+            signup_email = st.text_input(
                 "Email address",
                 key="signup_email",
             )
-            new_password = st.text_input(
+            signup_password = st.text_input(
                 "Create password",
                 type="password",
                 key="signup_password",
             )
-            confirm_password = st.text_input(
+            signup_password_confirm = st.text_input(
                 "Confirm password",
                 type="password",
-                key="confirm_password",
+                key="signup_password_confirm",
             )
-            signup_clicked = st.form_submit_button(
+            signup_submitted = st.form_submit_button(
                 "Create Account",
                 use_container_width=True,
             )
 
-        if signup_clicked:
+        if signup_submitted:
             if supabase is None:
                 st.error(
-                    "Supabase is unavailable. Account creation needs "
-                    "a working connection. You can continue as a guest."
+                    "Account creation needs Supabase, which is currently "
+                    "unreachable. You can continue in Guest Mode."
                 )
-            elif not new_email.strip() or not new_password:
-                st.warning("Enter an email and password.")
-            elif new_password != confirm_password:
+            elif not signup_email.strip() or not signup_password:
+                st.warning("Enter your email address and password.")
+            elif signup_password != signup_password_confirm:
                 st.warning("The passwords do not match.")
-            elif len(new_password) < 8:
+            elif len(signup_password) < 8:
                 st.warning("Use a password with at least 8 characters.")
             else:
                 try:
-                    result = supabase.auth.sign_up(
+                    signup_result = supabase.auth.sign_up(
                         {
-                            "email": new_email.strip(),
-                            "password": new_password,
+                            "email": signup_email.strip(),
+                            "password": signup_password,
                         }
                     )
 
-                    if result.session and result.user:
+                    if signup_result.session and signup_result.user:
                         st.session_state["sb_access_token"] = (
-                            result.session.access_token
+                            signup_result.session.access_token
                         )
                         st.session_state["sb_refresh_token"] = (
-                            result.session.refresh_token
+                            signup_result.session.refresh_token
                         )
                         st.session_state["sb_user_email"] = (
-                            result.user.email
+                            signup_result.user.email
                         )
                         st.session_state["sb_user_id"] = str(
-                            result.user.id
+                            signup_result.user.id
                         )
-                        st.success("Account created successfully!")
+                        st.success("Account created successfully.")
                         st.rerun()
                     else:
                         st.success(
-                            "Signup request accepted. Check your email "
-                            "for the confirmation link, then sign in."
+                            "Signup request accepted. Check your email for "
+                            "the confirmation link, then return to Sign In."
                         )
                 except Exception:
                     st.error(
-                        "Account creation failed. Supabase may be "
-                        "unreachable or the signup request was rejected. "
-                        "Try again later or use Guest Mode."
+                        "Account creation failed. Check that the Supabase "
+                        "URL and publishable key are correct, your connection "
+                        "works, and email signup is enabled. Use Guest Mode "
+                        "while troubleshooting."
                     )
 
-    st.markdown("### Or explore without an account")
+    st.markdown("### Or try the app without an account")
     st.caption(
-        "Guest Mode does not create an account or save reports to "
-        "Supabase. Your current work is held only in this app session."
+        "Guest Mode does not create a user account or save reports to "
+        "Supabase. Temporary work may disappear when the session ends."
     )
-
     if st.button("Continue as Guest", use_container_width=True):
         st.session_state["guest_mode"] = True
         st.session_state["sb_access_token"] = None
@@ -278,30 +276,26 @@ if (
         st.rerun()
 
     st.info(
-        "Use fictional medical reports while testing this prototype. "
-        "AI explanations are informational and can be incorrect."
+        "Use fictional medical reports during testing. AI explanations are "
+        "informational and may be inaccurate."
     )
     st.stop()
 
 
-# --------------------------------------------------
-# 6. USER / GUEST SIDEBAR
-# --------------------------------------------------
+# ----------------------- SIDEBAR -----------------------
 
 st.sidebar.markdown("## 🩺 AI Health Copilot")
 st.sidebar.markdown("---")
 st.sidebar.markdown("🏠 Home")
 st.sidebar.markdown("📄 Upload Report")
-st.sidebar.markdown("📁 My Reports")
-st.sidebar.markdown("📊 Health Insights")
-st.sidebar.markdown("📚 Medical Terms")
+st.sidebar.markdown("🧠 AI Explanation")
 st.sidebar.markdown("---")
 
-if st.session_state["guest_mode"]:
-    st.sidebar.caption("Guest Mode — reports are not saved")
+if is_guest:
+    st.sidebar.info("Guest Mode")
+    st.sidebar.caption("Reports are not saved.")
     if st.sidebar.button("Exit Guest Mode"):
-        for key, value in defaults.items():
-            st.session_state[key] = value
+        clear_user_session()
         st.rerun()
 else:
     st.sidebar.caption(
@@ -313,162 +307,176 @@ else:
                 supabase.auth.sign_out()
         except Exception:
             pass
-
-        for key, value in defaults.items():
-            st.session_state[key] = value
-
+        clear_user_session()
         st.rerun()
 
 
-# --------------------------------------------------
-# 7. MAIN DASHBOARD
-# --------------------------------------------------
+# ----------------------- DASHBOARD -----------------------
 
-if st.session_state["guest_mode"]:
+if is_guest:
     st.warning(
-        "You are using Guest Mode. Nothing is saved to your account "
-        "or Supabase. Avoid uploading real personal medical records."
+        "Guest Mode: do not upload real medical records. Files and text "
+        "are not saved to Supabase, but the AI provider may receive the "
+        "text you submit for explanation."
     )
 
 st.markdown(
     """
     <div class="hero">
         <h1>AI Health Copilot 🩺</h1>
-        <p>Your personal medical information assistant</p>
+        <p>Understand medical reports in clearer, simpler language.</p>
     </div>
     """,
     unsafe_allow_html=True,
 )
 
-col1, col2, col3 = st.columns(3)
+feature_1, feature_2, feature_3 = st.columns(3)
 
-with col1:
+with feature_1:
     st.markdown(
         """
-        <div class="card">
-            <h3>📄 Upload Reports</h3>
-            <p>Upload medical reports in PDF or image format.</p>
+        <div class="feature-card">
+            <h3>📄 Report Upload</h3>
+            <p>Choose a PDF or a clear report image.</p>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-with col2:
+with feature_2:
     st.markdown(
         """
-        <div class="card">
-            <h3>🧠 AI Analysis</h3>
-            <p>Get easy-to-understand medical explanations.</p>
+        <div class="feature-card">
+            <h3>🔎 Text Extraction</h3>
+            <p>Extract report text for you to review and correct.</p>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-with col3:
+with feature_3:
     st.markdown(
         """
-        <div class="card">
-            <h3>💙 Health Insights</h3>
-            <p>Understand key terms and organize findings.</p>
+        <div class="feature-card">
+            <h3>💙 Simple Explanation</h3>
+            <p>Ask AI to explain terms and values in plain language.</p>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
 
-# --------------------------------------------------
-# 8. REPORT UPLOAD
-# --------------------------------------------------
+# ----------------------- REPORT UPLOAD & EXTRACTION -----------------------
 
-st.markdown("## 📤 Upload a Medical Report")
-st.write("Choose a report to extract and review its text.")
+st.markdown("## Upload a Medical Report")
+st.write("Supported formats: PDF, PNG, JPG, and JPEG.")
 
-uploaded_file = st.file_uploader(
-    "Choose a PDF or image",
+uploaded_report = st.file_uploader(
+    "Choose a fictional sample report for testing",
     type=["pdf", "png", "jpg", "jpeg"],
     key="medical_report_upload",
 )
 
-if uploaded_file:
-    current_filename = uploaded_file.name
+if uploaded_report is not None:
+    filename = uploaded_report.name
 
-    if st.session_state["report_filename"] != current_filename:
+    if st.session_state["report_filename"] != filename:
+        st.session_state["report_filename"] = filename
         st.session_state["extracted_text"] = ""
-        st.session_state["report_explanation"] = None
         st.session_state["report_text_review"] = ""
-        st.session_state["report_filename"] = current_filename
+        st.session_state["report_explanation"] = None
 
-    st.success(f"Report selected: {current_filename}")
+    st.success(f"Selected file: {filename}")
 
-    if st.button("🔍 Extract Report Text"):
-        with st.spinner("Reading your report..."):
-            try:
-                from report_reader import extract_report_text
+    if st.button("Extract Report Text", use_container_width=True):
+        try:
+            from report_reader import extract_report_text
 
-                extracted = extract_report_text(uploaded_file)
+            with st.spinner("Extracting text..."):
+                text_result = extract_report_text(uploaded_report)
 
-                if extracted.strip():
-                    st.session_state["extracted_text"] = extracted
-                    st.session_state["report_text_review"] = extracted
-                    st.session_state["report_explanation"] = None
-                    st.success("Text extraction completed!")
-                else:
-                    st.warning(
-                        "No text was extracted. Try a clearer file."
-                    )
-            except Exception as e:
-    st.error(
-        f"Report extraction failed: "
-        f"{type(e).__name__}: {e}"
-    )
+            if text_result and text_result.strip():
+                st.session_state["extracted_text"] = text_result
+                st.session_state["report_text_review"] = text_result
+                st.session_state["report_explanation"] = None
+                st.success("Text extracted. Review it carefully below.")
+            else:
+                st.warning(
+                    "No readable text was found. Try a sharper image or "
+                    "a PDF with selectable text."
+                )
+        except Exception as exc:
+            error_name = type(exc).__name__
+            if error_name in {
+                "TesseractNotFoundError",
+                "PDFInfoNotInstalledError",
+                "PDFPageCountError",
+            }:
+                st.error(
+                    f"Report extraction dependency error: {error_name}. "
+                    "The deployed OCR system tools may be missing."
+                )
+            elif error_name == "ModuleNotFoundError":
+                st.error(
+                    "A Python package required for extraction is missing. "
+                    "Check requirements.txt and the app logs."
+                )
+            else:
+                st.error(
+                    f"Report extraction failed ({error_name}). "
+                    "Check the app logs for technical details."
+                )
 
     if st.session_state["extracted_text"]:
-        st.markdown("### 📄 Extracted Report Text")
+        st.markdown("### Review extracted text")
         st.text_area(
-            "Review and correct the extracted text",
-            height=250,
+            "Correct any OCR mistakes before requesting an explanation",
             key="report_text_review",
+            height=250,
         )
         st.caption(
-            "Verify medical values and units against the original report."
+            "OCR may misread medical values, decimal points, units, and names. "
+            "Compare the text with the original document."
         )
 
-        if st.button("🧠 Explain My Report"):
-            corrected_text = st.session_state["report_text_review"]
+        if st.button("Explain My Report", use_container_width=True):
+            reviewed_text = st.session_state["report_text_review"].strip()
 
-            if not corrected_text.strip():
-                st.warning("There is no report text to explain.")
+            if not reviewed_text:
+                st.warning("There is no text to explain.")
+            elif not st.secrets.get("OPENROUTER_API_KEY"):
+                st.error(
+                    "The OpenRouter API key is missing from Streamlit Secrets."
+                )
             else:
                 try:
                     from ai_explainer import explain_medical_report
 
-                    with st.spinner("Preparing your explanation..."):
-                        explanation = explain_medical_report(corrected_text)
+                    with st.spinner("Preparing a plain-language explanation..."):
+                        ai_result = explain_medical_report(reviewed_text)
 
-                    st.session_state["report_explanation"] = explanation
-                except Exception:
+                    st.session_state["report_explanation"] = ai_result
+                except Exception as exc:
                     st.error(
-                        "AI explanation failed. Check the OpenRouter "
-                        "secret, model availability, and app logs."
+                        "AI explanation failed. Check the OpenRouter secret, "
+                        "internet connection, model availability, and app logs. "
+                        f"Error type: {type(exc).__name__}."
                     )
 
-        explanation = st.session_state["report_explanation"]
-        if explanation:
-            st.markdown("### 💙 Your Report Explained")
-            st.markdown(explanation)
+        if st.session_state["report_explanation"]:
+            st.markdown("### Your Report Explained")
+            st.markdown(st.session_state["report_explanation"])
             st.info(
-                "This explanation is informational, not a diagnosis. "
-                "Discuss medical findings with a qualified clinician."
+                "This is general information, not a diagnosis or treatment "
+                "recommendation. Confirm findings with a qualified clinician."
             )
 
 
-# --------------------------------------------------
-# 9. PRIVACY NOTICE
-# --------------------------------------------------
+# ----------------------- PRIVACY NOTICE -----------------------
 
 st.markdown("---")
 st.caption(
-    "Privacy first: uploaded reports are not saved to Supabase by this "
-    "prototype. Use fictional sample reports while testing. AI outputs "
-    "can be incorrect and should be checked with a qualified clinician."
+    "Prototype notice: uploaded reports are not saved to Supabase by this "
+    "app. If you request an AI explanation, the reviewed text is sent to "
+    "the configured AI provider. Use fictional data while testing."
 )
