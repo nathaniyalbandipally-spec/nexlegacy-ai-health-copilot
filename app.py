@@ -234,10 +234,10 @@ if not st.session_state["sb_access_token"]:
                             "for the confirmation link, then sign in."
                         )
 
-                except Exception:
-                    st.error(
-                        "Account creation failed. Check the email "
-                        "and Supabase authentication settings."
+                        except Exception as e:
+            st.error(
+                f"Signup error: {type(e).__name__}: {e}"
+            )
                     )
 
     st.info(
