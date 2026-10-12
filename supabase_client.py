@@ -1,9 +1,12 @@
 
-import streamlit as st
-from supabase import create_client, Client
 
-@st.cache_resource
-def get_supabase() -> Client:
-    url = st.secrets["SUPABASE_URL"]
-    key = st.secrets["SUPABASE_KEY"]
-    return create_client(url, key)
+import streamlit as st
+from supabase import create_client
+
+
+def create_supabase_client():
+    """Create a client for the current Streamlit session."""
+    return create_client(
+        st.secrets["SUPABASE_URL"],
+        st.secrets["SUPABASE_KEY"]
+    )
