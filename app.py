@@ -122,39 +122,77 @@ uploaded_file = st.file_uploader(
 )
 
 
+
 if uploaded_file:
-    st.success(f"File received: {uploaded_file.name}")
+    st.success(f"Report uploaded: {uploaded_file.name}")
 
     if st.button("🔍 Extract Report Text"):
-        with st.spinner("Reading your medical report..."):
+        with st.spinner("Reading your report..."):
             try:
                 from report_reader import extract_report_text
 
-                extracted_text = extract_report_text(uploaded_file)
+                text = extract_report_text(uploaded_file)
 
-                if extracted_text:
-                    st.session_state["extracted_text"] = extracted_text
-                    st.success("Text extraction completed!")
+                if text:
+                    st.session_state["extracted_text"] = text
+                    st.session_state["report_filename"] = uploaded_file.name
+                    st.success("Text extracted successfully!")
                 else:
                     st.warning(
-                        "No text was extracted. "
-                        "The report may be scanned or unclear."
+                        "No text found. Try a clearer report."
                     )
 
-            except Exception as error:
+            except Exception:
                 st.error(
-                    "Could not read this report. "
-                    "Please try a clearer file."
+                    "Could not read this file. Check the file "
+                    "format and OCR dependencies."
                 )
-                st.caption(f"Technical details: {error}")
 
-    if st.session_state.get("extracted_text"):
+    extracted_text = st.session_state.get("extracted_text", "")
+
+    if extracted_text:
         st.markdown("### 📄 Extracted Report Text")
+
         st.text_area(
-            "Review the extracted text",
-            value=st.session_state["extracted_text"],
-            height=300
+            "Review and correct the extracted text",
+            value=extracted_text,
+            height=250,
+            key="report_text_review"
         )
+
         st.caption(
-            "Please verify the extracted values against the original report."
+            "Verify names, dates, values, and units against "
+            "the original report before requesting an explanation."
         )
+
+        if st.button("🧠 Explain My Report"):
+            try:
+                from ai_explainer import explain_medical_report
+
+                corrected_text = st.session_state["report_text_review"]
+
+                if not corrected_text.strip():
+                    st.warning("Please provide report text first.")
+                else:
+                    with st.spinner("Preparing your explanation..."):
+                        explanation = explain_medical_report(
+                            corrected_text
+                        )
+
+                    st.session_state["report_explanation"] = explanation
+
+            except Exception:
+                st.error(
+                    "The explanation could not be generated. "
+                    "Check your API key, internet connection, "
+                    "and AI provider availability."
+                )
+
+        if st.session_state.get("report_explanation"):
+            st.markdown("### 💙 Your Report Explained")
+            st.markdown(st.session_state["report_explanation"])
+
+            st.info(
+                "This is informational assistance, not a diagnosis. "
+                "Confirm medical findings with a qualified clinician."
+            )
