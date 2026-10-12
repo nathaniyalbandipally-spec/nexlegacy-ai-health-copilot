@@ -3,3 +3,5 @@ streamlit
 pypdf
 pillow
 supabase
+pytesseract
+pdf2image
