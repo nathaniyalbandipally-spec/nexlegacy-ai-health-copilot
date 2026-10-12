@@ -1,6 +1,6 @@
 
 import streamlit as st
-
+from supabase_client import create_supabase_client
 st.set_page_config(
     page_title="AI Health Copilot",
     page_icon="🩺",
@@ -110,6 +110,91 @@ with c3:
         <p>Organize findings and understand key terms.</p>
     </div>
     """, unsafe_allow_html=True)
+
+# Initialize Supabase
+try:
+    supabase = create_supabase_client()
+except Exception:
+    st.error(
+        "Supabase is not configured yet. "
+        "Please configure your app secrets."
+    )
+    st.stop()
+
+# Authentication
+if "user" not in st.session_state:
+    st.session_state.user = None
+
+if not st.session_state.user:
+    st.markdown("## 🔐 Welcome to AI Health Copilot")
+    st.write("Sign in or create an account to continue.")
+
+    tab_login, tab_signup = st.tabs(["Sign In", "Sign Up"])
+
+    with tab_login:
+        login_email = st.text_input(
+            "Email address",
+            key="login_email"
+        )
+        login_password = st.text_input(
+            "Password",
+            type="password",
+            key="login_password"
+        )
+
+        if st.button("Sign In", use_container_width=True):
+            try:
+                result = supabase.auth.sign_in_with_password({
+                    "email": login_email,
+                    "password": login_password
+                })
+                st.session_state.user = result.user
+                st.rerun()
+            except Exception:
+                st.error("Sign in failed. Check your details.")
+
+    with tab_signup:
+        signup_email = st.text_input(
+            "Email address",
+            key="signup_email"
+        )
+        signup_password = st.text_input(
+            "Create password",
+            type="password",
+            key="signup_password"
+        )
+
+        if st.button("Create Account", use_container_width=True):
+            try:
+                result = supabase.auth.sign_up({
+                    "email": signup_email,
+                    "password": signup_password
+                })
+
+                if result.session:
+                    st.session_state.user = result.user
+                    st.rerun()
+                else:
+                    st.success(
+                        "Account created! Check your email "
+                        "to confirm your account, then sign in."
+                    )
+            except Exception:
+                st.error(
+                    "Account creation failed. Check your "
+                    "email and password requirements."
+                )
+
+    st.stop()
+
+# Signed-in user
+st.caption(f"Signed in as: {st.session_state.user.email}")
+
+if st.button("Sign Out"):
+    supabase.auth.sign_out()
+    st.session_state.user = None
+    st.rerun()
+
 
 st.markdown("## 📤 Upload a Medical Report")
 st.markdown(
