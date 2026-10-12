@@ -2,32 +2,41 @@
 from io import BytesIO
 
 import pytesseract
-import streamlit as st
 from PIL import Image
 from pypdf import PdfReader
+from pdf2image import convert_from_bytes
 
 
 def extract_report_text(uploaded_file):
-    """Extract text from a PDF or image medical report."""
+    """Extract text from PDFs and medical report images."""
     filename = uploaded_file.name.lower()
     file_bytes = uploaded_file.getvalue()
 
     if filename.endswith(".pdf"):
         reader = PdfReader(BytesIO(file_bytes))
-        pages = [
+        pages_text = [
             page.extract_text() or ""
             for page in reader.pages
         ]
-        text = "\n\n".join(pages).strip()
+        text = "\n\n".join(pages_text).strip()
 
-        if text:
+        if len(text) >= 20:
             return text
 
-        st.warning(
-            "This PDF contains no selectable text. "
-            "Scanned PDF OCR will be added next."
+        # Scanned PDF: convert pages to images and use OCR.
+        images = convert_from_bytes(
+            file_bytes,
+            dpi=200,
+            first_page=1,
+            last_page=min(len(reader.pages), 10)
         )
-        return ""
+
+        text = "\n\n".join(
+            pytesseract.image_to_string(image)
+            for image in images
+        ).strip()
+
+        return text
 
     if filename.endswith((".png", ".jpg", ".jpeg")):
         image = Image.open(BytesIO(file_bytes)).convert("RGB")
