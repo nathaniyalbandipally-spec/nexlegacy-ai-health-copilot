@@ -237,7 +237,7 @@ if not st.session_state["sb_access_token"]:
                         except Exception as e:
             st.error(
                 f"Signup error: {type(e).__name__}: {e}"
-            )
+            
                     )
 
     st.info(
